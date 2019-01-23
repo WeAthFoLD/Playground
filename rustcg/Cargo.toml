@@ -1,0 +1,10 @@
+[package]
+name = "rustcg"
+version = "0.1.0"
+authors = ["WeAthFolD <weathfold@li-dev.cn>"]
+
+[dependencies]
+glutin = "0.19"
+gfx_core = "0.8"
+gfx_device_gl = "0.15"
+gfx_window_glutin = "0.28.0"
