@@ -46,7 +46,7 @@ impl GameContext {
         let gl_context = glutin::ContextBuilder::new();
 
         // Setup gfx_window_glutin
-        let (window, mut device, mut factory, rtv, stv) =
+        let (window, device, factory, rtv, stv) =
             gfx_window_glutin::init::<Rgba8, DepthStencil>(window_builder, gl_context, &events_loop).unwrap();
 
         let ctx = GameContext {
