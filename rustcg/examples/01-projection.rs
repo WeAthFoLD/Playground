@@ -78,7 +78,7 @@ fn main() {
         };
         encoder.clear(&gfx.color_view, [0.2, 0.2, 0.3, 1.0]);
 
-        encoder.update_buffer(&pipe_data.transform, &[Locals { transform: mat }], 0);
+        encoder.update_buffer(&pipe_data.transform, &[Locals { transform: mat }], 0).unwrap();
         encoder.draw(&slice, &pso, &pipe_data);
 
         // Flush
