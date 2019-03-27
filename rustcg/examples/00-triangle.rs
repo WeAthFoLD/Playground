@@ -54,19 +54,26 @@ fn main() {
         (encoder, pso, vertex_buffer, slice)
     };
 
-    // TDOO: Figure out what &mut in here means
-    ctx.run_loop(&mut |gfx| {
-        // Emit draw calls
-        // !! Note that vertex_buffer and rtv are all HANDLES to underlying buffer,
-        //   and here we DUPLICATE the handle.
-        let pipe_data = pipe::Data {
-            vbuf: vertex_buffer.clone(),
-            out_color: gfx.color_view.clone(),
-        };
-        encoder.clear(&gfx.color_view, [0.2, 0.2, 0.3, 1.0]);
-        encoder.draw(&slice, &pso, &pipe_data);
+    let mut running = true;
+    while running {
+        ctx.process_events(&mut running);
 
-        // Flush
-        encoder.flush(&mut gfx.device);
-    })
+        {
+            let ref mut gfx = ctx.gfx;
+            // Emit draw calls
+            // !! Note that vertex_buffer and rtv are all HANDLES to underlying buffer,
+            //   and here we DUPLICATE the handle.
+            let pipe_data = pipe::Data {
+                vbuf: vertex_buffer.clone(),
+                out_color: gfx.color_view.clone(),
+            };
+            encoder.clear(&gfx.color_view, [0.2, 0.2, 0.3, 1.0]);
+            encoder.draw(&slice, &pso, &pipe_data);
+    
+            // Flush
+            encoder.flush(&mut gfx.device);
+        }
+
+        ctx.frame_end();
+    }
 }

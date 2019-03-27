@@ -51,9 +51,9 @@ fn main() {
 
         // Vertex data
         let triangle: [Vertex; 3] = [
-            Vertex::new([0.5, -0.5, 0.0]),
-            Vertex::new([-0.5, -0.5, 0.0]),
-            Vertex::new([-0.5, 0.5, 0.0]),
+            Vertex::new([0.5, -0.5, -1.0]),
+            Vertex::new([-0.5, -0.5, -1.0]),
+            Vertex::new([-0.5, 0.5, -1.0]),
         ];
 
         // Create VBO
@@ -61,27 +61,39 @@ fn main() {
         (encoder, pso, vertex_buffer, slice)
     };
 
-    let mut mat: [[f32; 4]; 4] = cgmath::Matrix4::one().into();
-    mat[3][0] = 0.2;
-
     let transform_buffer = ctx.gfx.factory.create_constant_buffer(1);
+    let mut running = true;
+    println!("Start running");
+    while running {
+        ctx.process_events(&mut running);
+        //// begin frame process
 
-    // TDOO: Figure out what &mut in here means
-    ctx.run_loop(&mut |gfx| {
-        // Emit draw calls
-        // !! Note that vertex_buffer and rtv are all HANDLES to underlying buffer,
-        //   and here we DUPLICATE the handle.
-        let pipe_data = pipe::Data {
-            vbuf: vertex_buffer.clone(),
-            out_color: gfx.color_view.clone(),
-            transform: transform_buffer.clone()
-        };
-        encoder.clear(&gfx.color_view, [0.2, 0.2, 0.3, 1.0]);
+        let (width, height) = ctx.get_window_size();
+        {
+            let ref mut gfx = ctx.gfx;
 
-        encoder.update_buffer(&pipe_data.transform, &[Locals { transform: mat }], 0).unwrap();
-        encoder.draw(&slice, &pso, &pipe_data);
+            // Emit draw calls
+            // !! Note that vertex_buffer and rtv are all HANDLES to underlying buffer,
+            //   and here we DUPLICATE the handle.
+            let pipe_data = pipe::Data {
+                vbuf: vertex_buffer.clone(),
+                out_color: gfx.color_view.clone(),
+                transform: transform_buffer.clone()
+            };
+            encoder.clear(&gfx.color_view, [0.2, 0.2, 0.3, 1.0]);
 
-        // Flush
-        encoder.flush(&mut gfx.device);
-    })
+            let aspect = width / height;
+
+            let mat: [[f32; 4]; 4] = cgmath::perspective(cgmath::Deg(90.0), aspect, 0.001, 1000.0).into();
+
+            encoder.update_buffer(&pipe_data.transform, &[Locals { transform: mat }], 0).unwrap();
+            encoder.draw(&slice, &pso, &pipe_data);
+
+            // Flush
+            encoder.flush(&mut gfx.device);
+        }
+
+        //// end frame 
+        ctx.frame_end();
+    }
 }

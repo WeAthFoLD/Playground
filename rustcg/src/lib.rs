@@ -63,37 +63,38 @@ impl GameContext {
         ctx
     }
 
-    pub fn run_loop<C>(&mut self, cb: &mut C)
-        where C: FnMut(&mut GfxContext) {
-        unsafe { self.window.make_current() }.unwrap();
+    pub fn get_window_size(&self) -> (f32, f32) {
+        let size = self.window.get_inner_size().unwrap();
+        let dpi_factor = self.window.get_hidpi_factor();
+        let pixel_size = size.to_physical(dpi_factor);
+        (pixel_size.width as f32, pixel_size.height as f32)
+    }
 
-        let mut running = true;
-        while running {
-            let window = &self.window;
-            let gfx = &mut self.gfx;
-            self.events_loop.poll_events(|event| {
-                match event {
-                    glutin::Event::WindowEvent { event, .. } => match event {
-                        glutin::WindowEvent::CloseRequested => running = false,
-                        glutin::WindowEvent::Resized(new_size) => {
-                            let dpi_factor = window.get_hidpi_factor();
-                            window.resize(new_size.to_physical(dpi_factor));
-                            // Here resized new views will be created
-                            gfx_window_glutin::update_views(
-                                &window, &mut gfx.color_view, &mut gfx.depth_view);
-                        },
-                        _ => ()
+    pub fn process_events(&mut self, running: &mut bool) {
+        let window = &self.window;
+        let gfx = &mut self.gfx;
+        self.events_loop.poll_events(|event| {
+            match event {
+                glutin::Event::WindowEvent { event, .. } => match event {
+                    glutin::WindowEvent::CloseRequested => *running = false,
+                    glutin::WindowEvent::Resized(new_size) => {
+                        let dpi_factor = window.get_hidpi_factor();
+                        window.resize(new_size.to_physical(dpi_factor));
+                        // Here resized new views will be created
+                        gfx_window_glutin::update_views(
+                            &window, &mut gfx.color_view, &mut gfx.depth_view);
                     },
                     _ => ()
-                }
-            });
+                },
+                _ => ()
+            }
+        });
+    }
 
-            cb(gfx);
-
-            // Swap buffers
-            window.swap_buffers().unwrap();
-            gfx.device.cleanup();
-        }
+    pub fn frame_end(&mut self) {
+        // Swap buffers
+        self.window.swap_buffers().unwrap();
+        self.gfx.device.cleanup();
     }
 
 }
