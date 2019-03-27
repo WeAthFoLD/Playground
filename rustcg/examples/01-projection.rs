@@ -6,6 +6,7 @@ extern crate cgmath;
 use cgmath::Transform;
 use rustcg::*;
 use gfx::traits::FactoryExt;
+use gfx::IntoIndexBuffer;
 
 // Define pipeline `pipe`
 gfx_defines! {
@@ -57,7 +58,9 @@ fn main() {
         ];
 
         // Create VBO
-        let (vertex_buffer, slice) = gfx.factory.create_vertex_buffer_with_slice(&triangle, ());
+        let indices = vec![0u32, 1, 2];
+        let (vertex_buffer, slice) = gfx.factory
+            .create_vertex_buffer_with_slice(&triangle, &*indices);
         (encoder, pso, vertex_buffer, slice)
     };
 

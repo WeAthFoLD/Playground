@@ -11,7 +11,6 @@ use gfx::handle::RenderTargetView;
 use gfx::handle::DepthStencilView;
 
 use gfx_device_gl::Resources;
-use glutin::GlContext;
 
 pub mod resource;
 
