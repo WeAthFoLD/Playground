@@ -2,10 +2,20 @@
 extern crate gfx;
 extern crate rustcg;
 extern crate gfx_core;
+extern crate cgmath;
 
+use std::option::*;
 use rustcg::*;
 use gfx::traits::FactoryExt;
 use gfx_core::factory::Factory;
+use cgmath::prelude::*;
+use cgmath::vec3;
+use cgmath::Deg;
+use cgmath::Rad;
+use std::num;
+
+type Vec3 = cgmath::Vector3<f32>;
+
 
 gfx_defines! {
     vertex Vertex {
@@ -45,10 +55,27 @@ impl Into<Color> for u32 {
 }
 
 impl Color {
+    fn from_float(r: f32, g: f32, b: f32, a: f32) -> Color {
+        let go = |x: f32| (x * 255.0) as u8;
+        Color {
+            r: go(r), g: go(g), b: go(b), a: go(a)
+        }
+    }
+
     fn new(r: u8, g: u8, b: u8, a: u8) -> Color {
         Color {
             r, g, b, a
         }
+    }
+
+    fn lerp(c1: Color, c2: Color, t: f32) -> Color {
+        let lerpi = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+        Color::new(
+            lerpi(c1.r, c2.r),
+            lerpi(c1.g, c2.g),
+            lerpi(c1.b, c2.b),
+            lerpi(c1.a, c2.a)
+        )
     }
 }
 
@@ -88,13 +115,21 @@ impl Image {
     }
 }
 
-fn apply_raytrace(img: &mut Image) {
-    for x in 0 .. img.width {
-        for y in 0 .. img.height {
-            let (w, h) = (img.width, img.height);
-            img.put_pixel(x, y, Color::new((x * 255 / w) as u8, (y * 255 / h) as u8, 128, 255));
-        }
+#[derive(Copy, Clone, Debug)]
+struct Ray {
+    pos: Vec3,
+    dir: Vec3
+}
+
+impl Ray {
+    fn new(pos: Vec3, dir: Vec3) -> Ray {
+        Ray { pos, dir: dir.normalize() }
     }
+
+    fn move_by(&self, t: f32) -> Vec3 {
+        self.pos + self.dir * t
+    }
+
 }
 
 fn main() {
@@ -159,3 +194,68 @@ fn main() {
     }
 }
 
+fn ray_sphere_intersect(ray: Ray, p: Vec3, r: f32) -> bool {
+    let ap = p - ray.pos;
+    let ax = ray.dir.dot(ap);
+    let mag = (ap - ax * ray.dir).magnitude();
+    return ax > 0.0 && mag * mag < r * r
+}
+
+fn ray_sphere_solve(ray: Ray, ps: Vec3, rs: f32) -> Option<Vec3> {
+    let a = ray.dir.magnitude2();
+    let b = 2.0 * (ray.pos - ps).dot(ray.dir);
+    let c = (ray.pos - ps).magnitude2() - rs * rs;
+
+    let det = b * b - 4.0 * a * c;
+    if det < 0.0 {
+        Option::None
+    } else {
+        Option::Some(
+            ray.pos + ray.dir *
+            (-b - det.sqrt()) / (2.0 * a)
+        )
+    }
+}
+
+fn frag(r: Ray) -> Color {
+    {
+        let ps = vec3(0.0, 0.0, -20.0);
+        let rs = 4.0;
+        let res = ray_sphere_solve(r, ps, rs);
+        if let Some(pos) = res {
+            let normal = (pos - ps).normalize();
+            let proc = |x: f32| (x + 1.0) / 2.0;
+            return Color::from_float(proc(normal.x), proc(normal.y), proc(normal.z), 1.0)
+//            return 0xef334dff.into();
+        }
+    }
+
+    // skybox
+    let c1: Color = 0xad95dcff.into();
+    let c2: Color = 0x1b405fff.into();
+    return Color::lerp(c1, c2, 0.5 * (1.0 + r.dir.y));
+}
+
+fn apply_raytrace(img: &mut Image) {
+    let zero_vec3: Vec3 = vec3(0.0, 0.0, 0.0);
+    let fov: f32 = 60.0;
+    let cam_size: f32 = 1.0;
+    let aspect = img.width as f32 / img.height as f32;
+
+    let back = aspect * cam_size / (Deg::tan(cgmath::Deg(fov / 2.0)));
+
+    for x in 0 .. img.width {
+        for y in 0 .. img.height {
+            let ndc = |x: f32| (x - 0.5) * 2.0;
+            let (x_ndc, y_ndc) = (
+                ndc(x as f32 / img.width as f32),
+                ndc(y as f32 / img.height as f32)
+            );
+
+            let dir = vec3(x_ndc * aspect * cam_size, y_ndc * cam_size, -back);
+            let ray = Ray::new(vec3(0.0, 0.0, back), dir);
+
+            img.put_pixel(x, y, frag(ray));
+        }
+    }
+}
