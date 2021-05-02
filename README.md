@@ -1,2 +1,3 @@
-# CGPlayground
-Various experimental projects to test Computer Graphics related ideas on.
+# Playground
+
+Some code for experimental ideas or self-learning.
