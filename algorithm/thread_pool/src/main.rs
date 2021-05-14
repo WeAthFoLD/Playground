@@ -1,8 +1,12 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::UnsafeCell;
 
 /// 一个勉强能用的RingBuffer
 struct RingBuffer<T> where T: Sized + Send {
-    arr: Vec<Option<T>>,
+    /// 使用 UnsafeCell 让我们可以在 &self 里对 Vec 进行操作。
+    /// 这样才能在正常的使用里避免多线程加锁（不然就需要Arc<RwLock<RingBuffer>>>，破坏了无锁队列的初衷。。）
+    arr: Vec<UnsafeCell<Option<T>>>,
     head: AtomicUsize,
     tail: AtomicUsize
 }
@@ -13,7 +17,7 @@ impl<T> RingBuffer<T> where T: Sized + Send {
         assert!(size > 1);
         let mut v = Vec::new();
         for _ in 0..size {
-            v.push(None);
+            v.push(None.into());
         }
         Self {
             arr: v,
@@ -22,7 +26,7 @@ impl<T> RingBuffer<T> where T: Sized + Send {
         }
     }
 
-    fn push(&mut self, val: T) -> Result<(), T> {
+    fn push(&self, val: T) -> Result<(), T> {
         let size = self.size();
         // tail = (tail + 1) % (size)
         // if tail + 1 == head (with modulo): overflow
@@ -33,7 +37,7 @@ impl<T> RingBuffer<T> where T: Sized + Send {
             let nlast = (last_tail + 1) % size;
             // 在cas里比较队列是否满，若满直接返回
             let head = self.head.load(Ordering::Relaxed);
-            println!("  push head={}, tail={}", head, last_tail);
+            // println!("  push head={}, tail={}", head, last_tail);
             if (last_tail + 1 + size - head) % size == 0 {
                 return Result::Err(val);
             }
@@ -47,15 +51,13 @@ impl<T> RingBuffer<T> where T: Sized + Send {
         }
 
         let slot = last_tail;
-        assert!(
-            match self.arr[slot] { None => true, _ => false }, 
-            format!("push into an non-empty slot {}", slot)
-        );
-        self.arr[slot] = Some(val);
+        unsafe { // SAFETY: 多个线程不会访问同一个cell
+            *self.arr[slot].get() = Some(val)
+        }
         Result::Ok(())
     }
 
-    fn pop(&mut self) -> Result<T, ()> {
+    fn pop(&self) -> Result<T, ()> {
         let size = self.size();
 
         let mut last_head = self.head.load(Ordering::Relaxed);
@@ -78,7 +80,10 @@ impl<T> RingBuffer<T> where T: Sized + Send {
         }
 
         let mut elem: Option<T> = None;
-        std::mem::swap(&mut elem, &mut self.arr[last_head]);
+        unsafe { // SAFETY: 多个线程不会访问同一个cell
+            let ptr = self.arr[last_head].get();
+            std::ptr::swap((&mut elem) as *mut Option<T>, ptr);
+        }
 
         match elem {
             Some(x) => Result::Ok(x),
@@ -88,6 +93,23 @@ impl<T> RingBuffer<T> where T: Sized + Send {
 
     fn size(&self) -> usize {
         self.arr.len()
+    }
+
+}
+
+type ThreadPoolEntry = Box<dyn Fn() + Send + 'static>;
+
+struct ThreadPool {
+    queue: Arc<RingBuffer<ThreadPoolEntry>>
+}
+
+impl ThreadPool {
+
+    fn queue_task<F>(&self, task: F) where F: Fn() + Send + 'static {
+        match self.queue.push(Box::new(task)) {
+            Result::Ok(_) => (), 
+            Result::Err(_) => panic!("Thread pending queue is full")
+        }
     }
 
 }
