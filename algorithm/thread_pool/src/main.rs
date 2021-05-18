@@ -1,6 +1,7 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
 use std::cell::UnsafeCell;
+use std::thread;
 
 /// 一个勉强能用的RingBuffer
 struct RingBuffer<T> where T: Sized + Send {
@@ -97,19 +98,80 @@ impl<T> RingBuffer<T> where T: Sized + Send {
 
 }
 
-type ThreadPoolEntry = Box<dyn Fn() + Send + 'static>;
+/// (实际不会被sync，绕过编译检查用)
+unsafe impl<T: Sized + Send> Sync for RingBuffer<T> {}
+
+type ThreadPoolEntry = Box<dyn FnOnce() + Send + 'static>;
 
 struct ThreadPool {
-    queue: Arc<RingBuffer<ThreadPoolEntry>>
+    queue: Arc<RingBuffer<ThreadPoolEntry>>,
+    destroyed_flag: Arc<AtomicBool>,
+    child_threads: Vec<thread::JoinHandle<()>>
 }
 
 impl ThreadPool {
 
-    fn queue_task<F>(&self, task: F) where F: Fn() + Send + 'static {
+    fn new(thread_count: usize) -> Self {
+        let destroyed_flag = Arc::new(AtomicBool::new(false));
+        let queue = Arc::new(RingBuffer::<ThreadPoolEntry>::new(16));
+        let mut child_threads = vec![];
+        for i in 0..thread_count {
+            let sub_destroyed_flag = destroyed_flag.clone();
+            let sub_queue = queue.clone();
+            let join_handle = thread::spawn(move || {
+                loop {
+                    match sub_queue.pop() {
+                        Result::Ok(task) => {
+                            task();
+                        },
+                        _ => {
+                            if sub_destroyed_flag.load(Ordering::Relaxed) {
+                                break
+                            } else {
+                                thread::yield_now()
+                            }
+                        }
+                    }
+                }
+
+                println!("Thread #{} destroyed.", i);
+            });
+
+            child_threads.push(join_handle);
+        }
+
+        Self {
+            queue: queue,
+            destroyed_flag,
+            child_threads
+        }
+    }
+
+    fn queue_task<F>(&self, task: F) where F: FnOnce() + Send + 'static {
         match self.queue.push(Box::new(task)) {
             Result::Ok(_) => (), 
             Result::Err(_) => panic!("Thread pending queue is full")
         }
+    }
+
+    /// join实现方式不是很优雅，因为实现了Drop所以无法将成员变量move out，
+    /// 所以只能用swap vec的方式拿到所有thread handle。
+    fn join(mut self) {
+        self.destroyed_flag.store(true, Ordering::Relaxed);
+
+        let mut v = Vec::new();
+        std::mem::swap(&mut v, &mut self.child_threads);
+        for handle in v {
+            handle.join().expect("Failed to join thread");
+        }
+    }
+
+}
+
+impl Drop for ThreadPool {
+
+    fn drop(&mut self) {
+        self.destroyed_flag.store(true, Ordering::Relaxed);
     }
 
 }
@@ -157,5 +219,21 @@ fn test_queue() {
 }
 
 fn main() {
+    use std::time::Duration;
+    println!("Testing ringbuffer...");
     test_queue();
+
+    println!();
+    println!("Testing thread pool...");
+    let thread_pool = ThreadPool::new(3);
+    for i in 0..4 {
+        thread_pool.queue_task(move || {
+            for j in 0..5 {
+                thread::sleep(Duration::from_millis(1000));
+                println!("Task #{} say {}", i, j);
+            }
+        });
+    }
+
+    thread_pool.join();
 }
